@@ -10,8 +10,8 @@ export function Header() {
           <Sparkles className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="font-semibold text-foreground">Margin Buddy</h1>
-          <p className="text-sm text-muted-foreground">Your friendly CFO assistant</p>
+          <h1 className="font-semibold text-foreground">MarginGuard</h1>
+          <p className="text-sm text-muted-foreground">Know before the margin is gone.</p>
         </div>
       </div>
       <div className="flex items-center gap-2 rounded-full border border-green-200 bg-green-50 px-3 py-1">
