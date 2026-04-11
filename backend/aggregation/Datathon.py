@@ -1,200 +1,137 @@
 import pandas as pd
-from pathlib import Path
+import numpy as np
+import ast
 
+# =========================
+# LOAD
+# =========================
+bh = pd.read_csv("billing_history_all.csv", low_memory=False)
+bli = pd.read_csv("billing_line_items_all.csv", low_memory=False)
+co = pd.read_csv("change_orders_all.csv", low_memory=False)
 
-def infer_status(df: pd.DataFrame) -> pd.Series:
-    def _infer(row):
-        if pd.notna(row["payment_date"]):
-            return "PAID"
-        if row["status"] == "APPROVED":
-            return "APPROVED"
-        return "PENDING"
-
-    return df.apply(_infer, axis=1)
-
-
-def compute_payment_flags(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["is_paid"] = df["payment_date"].notna()
-    df["true_status"] = infer_status(df)
-    df["status_mismatch"] = (
-        ((df["status"] == "PAID") & df["payment_date"].isna()) |
-        ((df["status"] == "PENDING") & df["payment_date"].notna())
+# =========================
+# CLEAN COLUMN NAMES
+# =========================
+def clean_cols(df):
+    df.columns = (
+        df.columns.str.strip()
+        .str.lower()
+        .str.replace(r"[^a-z0-9]+", "_", regex=True)
     )
     return df
 
+bh = clean_cols(bh)
+bli = clean_cols(bli)
+co = clean_cols(co)
 
-def generate_reason(row: pd.Series) -> str:
-    reasons = []
-    if row.get("underbilling_flag"):
-        reasons.append("Significant underbilling detected")
-    if row.get("overbilling_flag"):
-        reasons.append("Potential overbilling risk")
-    if row.get("payment_delay_flag"):
-        reasons.append("Approved but unpaid billing")
-    if row.get("cost_overrun_flag"):
-        reasons.append("Cost exceeds budget")
-    if row.get("closeout_flag"):
-        reasons.append("Project completed but not fully billed")
-    return "; ".join(reasons)
+# =========================
+# BILLING LINE ITEMS CLEAN
+# =========================
+num_cols = [
+    "scheduled_value","previous_billed","this_period",
+    "total_billed","pct_complete"
+]
 
+for c in num_cols:
+    bli[c] = pd.to_numeric(bli[c], errors="coerce")
 
-def compute_billing_risk(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["pct_billed"] = df["total_billed"] / df["scheduled_value"] * 100
-    df["billing_gap"] = df["pct_complete"] - df["pct_billed"]
-    df["underbilling_flag"] = df["billing_gap"] > 10
-    df["overbilling_flag"] = df["billing_gap"] < -10
-    df["payment_delay_flag"] = (
-        (df["status"] == "APPROVED") & df["payment_date"].isna()
+# pct_billed
+bli["pct_billed"] = bli["total_billed"] / bli["scheduled_value"] * 100
+
+# fill pct_complete（关键修复）
+bli["pct_complete"] = bli["pct_complete"].where(
+    bli["pct_complete"].notna(),
+    bli["pct_billed"]
+)
+
+# billing gap
+bli["billing_gap"] = bli["pct_complete"] - bli["pct_billed"]
+
+# =========================
+# KEEP ONLY LATEST BILLING
+# =========================
+bli_latest = (
+    bli.sort_values(["project_id","sov_line_id","application_number"])
+    .groupby(["project_id","sov_line_id"], as_index=False)
+    .tail(1)
+)
+
+# =========================
+# CHANGE ORDER CLEAN
+# =========================
+co["amount"] = pd.to_numeric(co["amount"], errors="coerce")
+co["schedule_impact_days"] = pd.to_numeric(co["schedule_impact_days"], errors="coerce")
+
+def parse(x):
+    try:
+        return ast.literal_eval(x) if pd.notna(x) else []
+    except:
+        return []
+
+co["affected_sov_lines"] = co["affected_sov_lines"].apply(parse)
+co = co.explode("affected_sov_lines")
+
+co = co.rename(columns={"affected_sov_lines":"sov_line_id"})
+
+# only approved
+co = co[co["status"].str.upper()=="APPROVED"]
+
+co_summary = (
+    co.groupby(["project_id","sov_line_id"], as_index=False)
+    .agg(
+        change_order_count=("co_number","count"),
+        total_co_amount=("amount","sum"),
+        total_delay_days=("schedule_impact_days","sum")
     )
-    df["closeout_flag"] = (
-        (df["pct_complete"] == 100) &
-        (df["total_billed"] < df["scheduled_value"])
+)
+
+# =========================
+# SOV SUMMARY（核心表）
+# =========================
+sov_summary = (
+    bli_latest[[
+        "project_id","sov_line_id",
+        "scheduled_value","total_billed",
+        "pct_complete","billing_gap"
+    ]]
+    .merge(co_summary, on=["project_id","sov_line_id"], how="left")
+)
+
+# fill NA
+sov_summary[["change_order_count","total_co_amount","total_delay_days"]] = \
+    sov_summary[["change_order_count","total_co_amount","total_delay_days"]].fillna(0)
+
+# =========================
+# PROJECT SUMMARY
+# =========================
+project_summary = (
+    sov_summary.groupby("project_id", as_index=False)
+    .agg(
+        total_budget=("scheduled_value","sum"),
+        total_billed=("total_billed","sum"),
+        avg_billing_gap=("billing_gap","mean"),
+        total_co_amount=("total_co_amount","sum"),
+        total_delay_days=("total_delay_days","sum")
     )
-    df["cost_overrun_flag"] = df["variance"] > 0
-    df["risk_score"] = (
-        df["underbilling_flag"].astype(int) * 3 +
-        df["payment_delay_flag"].astype(int) * 3 +
-        df["cost_overrun_flag"].astype(int) * 2 +
-        df["overbilling_flag"].astype(int) * 1 +
-        df["closeout_flag"].astype(int) * 2
-    )
-    df["risk_level"] = df["risk_score"].apply(
-        lambda value: "HIGH" if value >= 6 else "MEDIUM" if value >= 3 else "LOW"
-    )
-    df["risk_reason"] = df.apply(generate_reason, axis=1)
-    return df
+)
 
+# margin
+project_summary["margin"] = (
+    project_summary["total_billed"] - project_summary["total_budget"]
+) / project_summary["total_budget"]
 
-def generate_report(row: pd.Series) -> str:
-    return (
-        f"Project {row.get('project_id', 'unknown')} billing summary:\n"
-        f"- Completion: {row.get('pct_complete', 0):.1f}%\n"
-        f"- Billed: {row.get('pct_billed', 0):.1f}%\n"
-        f"- Variance: {row.get('variance', 0)}\n"
-        f"- Risk Level: {row.get('risk_level', 'UNKNOWN')}\n"
-        f"- Issues: {row.get('risk_reason', 'None')}\n"
-    )
+# =========================
+# FLAGGED PROJECTS
+# =========================
+projects_flagged = project_summary[
+    (project_summary["margin"] < 0.05)
+]
 
+# =========================
+# SAVE FILES
+# =========================
+sov_summary.to_csv("sov_summary.csv", index=False)
+project_summary.to_csv("project_summary.csv", index=False)
+projects_flagged.to_csv("projects_flagged.csv", index=False)
 
-def summarize_change_orders(df: pd.DataFrame) -> pd.DataFrame:
-    approved_co = df[df["status"] == "APPROVED"]
-    return (
-        approved_co.groupby("project_id", as_index=False)
-        .agg(
-            change_order_count=("co_number", "count"),
-            total_change_order_amount=("amount", "sum"),
-            linked_rfi_count=("related_rfi", lambda s: s.notna().sum()),
-        )
-    )
-
-
-def summarize_change_order_reasons(df: pd.DataFrame) -> pd.DataFrame:
-    approved_co = df[df["status"] == "APPROVED"]
-    return (
-        approved_co.groupby("reason_category", as_index=False)
-        .agg(
-            count=("co_number", "count"),
-            total_amount=("amount", "sum"),
-        )
-    )
-
-
-def load_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-def main() -> None:
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    billing_path = data_dir / "Bill-items.csv"
-    history_path = data_dir / "Bill-history.csv"
-    change_order_path = data_dir / "Change-Order.csv"
-
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory not found: {data_dir}")
-
-    if billing_path.exists():
-        billing_df = load_csv(billing_path)
-        billing_df = compute_billing_risk(compute_payment_flags(billing_df))
-        print(billing_df.head())
-    else:
-        print(f"Missing billing file: {billing_path}")
-
-    if history_path.exists():
-        history_df = load_csv(history_path)
-        history_df = compute_payment_flags(history_df)
-        print(history_df.head())
-    else:
-        print(f"Missing bill history file: {history_path}")
-
-    if change_order_path.exists():
-        change_order_df = load_csv(change_order_path)
-        print(summarize_change_orders(change_order_df).head())
-        print(summarize_change_order_reasons(change_order_df).head())
-    else:
-        print(f"Missing change order file: {change_order_path}")
-
-
-if __name__ == "__main__":
-    main()
-    return (
-        approved_co.groupby("project_id", as_index=False)
-        .agg(
-            change_order_count=("co_number", "count"),
-            total_change_order_amount=("amount", "sum"),
-            linked_rfi_count=("related_rfi", lambda s: s.notna().sum()),
-        )
-    )
-
-
-def summarize_change_order_reasons(df: pd.DataFrame) -> pd.DataFrame:
-    approved_co = df[df["status"] == "APPROVED"]
-    return (
-        approved_co.groupby("reason_category", as_index=False)
-        .agg(
-            count=("co_number", "count"),
-            total_amount=("amount", "sum"),
-        )
-    )
-
-
-def load_csv(path: Path) -> pd.DataFrame:
-    return pd.read_csv(path)
-
-
-def main() -> None:
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    billing_path = data_dir / "Bill-items.csv"
-    history_path = data_dir / "Bill-history.csv"
-    change_order_path = data_dir / "Change-Order.csv"
-
-    if not data_dir.exists():
-        raise FileNotFoundError(f"Data directory not found: {data_dir}")
-
-    if billing_path.exists():
-        billing_df = load_csv(billing_path)
-        billing_df = compute_billing_risk(compute_payment_flags(billing_df))
-        print(billing_df.head())
-    else:
-        print(f"Missing billing file: {billing_path}")
-
-    if history_path.exists():
-        history_df = load_csv(history_path)
-        history_df = compute_payment_flags(history_df)
-        print(history_df.head())
-    else:
-        print(f"Missing bill history file: {history_path}")
-
-    if change_order_path.exists():
-        change_order_df = load_csv(change_order_path)
-        print(summarize_change_orders(change_order_df).head())
-        print(summarize_change_order_reasons(change_order_df).head())
-    else:
-        print(f"Missing change order file: {change_order_path}")
-
-
-if __name__ == "__main__":
-    main()
-
->>>>>>> caa4aff (Add backend aggregation Datathon script with billing and risk scoring utilities)
+print("✅ Done!")
