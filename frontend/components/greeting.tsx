@@ -13,7 +13,7 @@ export function Greeting({ totalProjects }: GreetingProps) {
   return (
     <Card className="border-border bg-card">
       <CardContent className="flex items-start gap-3 p-6">
-        <span className="text-2xl">{`<3`}</span>
+        <span className="text-2xl">{`⚡`}</span>
         <div>
           <p className="font-semibold text-foreground">{greeting}!</p>
           <p className="text-muted-foreground">
