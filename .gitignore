@@ -1,1 +1,6 @@
+<<<<<<< HEAD
+=======
+node_modules/
+.next/
+>>>>>>> bdcfad3c52f94aa3173f8ea5c3b4564f7258a41e
 .DS_Store
