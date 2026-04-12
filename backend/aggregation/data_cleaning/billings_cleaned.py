@@ -5,7 +5,7 @@ import ast
 # =========================
 # LOAD
 # =========================
-bh = pd.read_csv("data/raw data/illing_history_all.csv", low_memory=False)
+bh = pd.read_csv("data/raw data/billing_history_all.csv", low_memory=False)
 bli = pd.read_csv("billing_line_items_all.csv", low_memory=False)
 co = pd.read_csv("change_orders_all.csv", low_memory=False)
 
@@ -51,11 +51,15 @@ bli["billing_gap"] = bli["pct_complete"] - bli["pct_billed"]
 # KEEP ONLY LATEST BILLING
 # =========================
 bli_latest = (
-    bli.sort_values(["project_id","sov_line_id","application_number"])
-    .groupby(["project_id","sov_line_id"], as_index=False)
-    .tail(1)
+    bli.groupby(["project_id", "sov_line_id"], as_index=False)
+    .agg(
+        scheduled_value=("scheduled_value", "max"),
+        total_billed=("total_billed", "max"),
+        pct_complete=("pct_complete", "max"),
+        pct_billed=("pct_billed", "max")
+    )
 )
-
+bli_latest["billing_gap"] = (bli_latest["pct_complete"] - bli_latest["pct_billed"]).round(3)
 # =========================
 # CHANGE ORDER CLEAN
 # =========================
