@@ -5,7 +5,7 @@ import ast
 # =========================
 # LOAD
 # =========================
-bh = pd.read_csv("billing_history_all.csv", low_memory=False)
+bh = pd.read_csv("data/raw data/illing_history_all.csv", low_memory=False)
 bli = pd.read_csv("billing_line_items_all.csv", low_memory=False)
 co = pd.read_csv("change_orders_all.csv", low_memory=False)
 
