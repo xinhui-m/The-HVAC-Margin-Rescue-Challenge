@@ -5,9 +5,9 @@ import ast
 # =========================
 # LOAD
 # =========================
-bh = pd.read_csv("data/raw data/illing_history_all.csv", low_memory=False)
-bli = pd.read_csv("billing_line_items_all.csv", low_memory=False)
-co = pd.read_csv("change_orders_all.csv", low_memory=False)
+bh = pd.read_csv("data/raw data/billing_history_all.csv", low_memory=False)
+bli = pd.read_csv("data/raw data/billing_line_items_all.csv", low_memory=False)
+co = pd.read_csv("data/raw data/change_orders_all.csv", low_memory=False)
 
 # =========================
 # CLEAN COLUMN NAMES
@@ -116,22 +116,21 @@ project_summary = (
 )
 
 # margin
-project_summary["margin"] = (
-    project_summary["total_billed"] - project_summary["total_budget"]
-) / project_summary["total_budget"]
+#project_summary["margin"] = (
+    #project_summary["total_billed"] - project_summary["total_budget"]
+#) / project_summary["total_budget"]
 
 # =========================
 # FLAGGED PROJECTS
 # =========================
-projects_flagged = project_summary[
-    (project_summary["margin"] < 0.05)
-]
+#projects_flagged = project_summary[
+#    (project_summary["margin"] < 0.05)]
 
 # =========================
 # SAVE FILES
 # =========================
-sov_summary.to_csv("sov_summary.csv", index=False)
-project_summary.to_csv("project_summary.csv", index=False)
-projects_flagged.to_csv("projects_flagged.csv", index=False)
+sov_summary.to_csv("data/Cleaned data/sov_summary.csv", index=False)
+#project_summary.to_csv("data/Cleaned data/project_summary.csv", index=False)
+#projects_flagged.to_csv("data/Cleaned data/projects_flagged.csv", index=False)
 
 print("✅ Done!")

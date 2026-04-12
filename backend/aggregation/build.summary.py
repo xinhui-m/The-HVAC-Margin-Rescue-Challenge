@@ -5,7 +5,7 @@ import pandas as pd
 #merging labor cost, material cost, and budget to get total cost and variance
 
 df_labor_cost = pd.read_csv("data/Cleaned data/cleaned_labor_log.csv")
-df_material_cost = pd.read_csv("data/Cleaned data/material_summary.csv")
+df_material_cost = pd.read_csv("data/Cleaned data/material_summary_material_overrun.csv")
 
 df_budget = pd.read_csv("data/Cleaned data/sov_budget_cleaned.csv") 
 #only using estimated_labor and estimated_material for now
@@ -24,10 +24,8 @@ df_merged = df_merged.merge(df_labor_cost, on=["project_id", "sov_line_id"], how
 
 
 ####need to change bcuz 0 is already filled
-# --- Step 3: merging material cost (fill missing values with 0) ---
-df_merged = df_merged.merge(df_material_cost, on=["project_id", "sov_line_id"], how="left")
-material_cols = [c for c in df_material_cost.columns if c not in ["project_id", "sov_line_id"]]
-df_merged[material_cols] = df_merged[material_cols].fillna(0)
+# --- Step 3: merging material cost 
+df_merged = df_merged.merge(df_material_cost, on=["project_id", "sov_line_id"], how="left")#material_total_cost,estimated_material_cost,material_overrun_ratio
 
 # --- Step 4: merging contract_value (project level, broadcast to line items) ---
 df_merged = df_merged.merge(df_contract_value, on="project_id", how="left")
@@ -45,8 +43,8 @@ for col in df_merged.columns:
     print(f"- {col}")
 
 #total cost=actual_labor_cost + actual_material_cost
-#labor_variance: actual_labor_cost - budget_labor_cost 
-#material_variance: actual_material_cost - budget_material_cost
+# Variance = Actual Cost - Budget
+
 
 #total_variance（总成本偏差）✅你的公式2 = actual_total_cost - total_budget
 #
