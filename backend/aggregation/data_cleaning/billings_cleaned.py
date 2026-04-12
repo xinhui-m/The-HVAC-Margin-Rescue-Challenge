@@ -10,7 +10,7 @@ bli = pd.read_csv("data/raw data/billing_line_items_all.csv", low_memory=False)
 co = pd.read_csv("data/raw data/change_orders_all.csv", low_memory=False)
 
 # =========================
-# CLEAN COLUMN NAMES
+# CLEAN COLS
 # =========================
 def clean_cols(df):
     df.columns = (
@@ -25,112 +25,251 @@ bli = clean_cols(bli)
 co = clean_cols(co)
 
 # =========================
-# BILLING LINE ITEMS CLEAN
+# CLEAN NUMERIC
 # =========================
-num_cols = [
-    "scheduled_value","previous_billed","this_period",
-    "total_billed","pct_complete"
-]
+for c in ["scheduled_value", "total_billed", "pct_complete", "application_number"]:
+    if c in bli.columns:
+        bli[c] = pd.to_numeric(bli[c], errors="coerce")
 
-for c in num_cols:
-    bli[c] = pd.to_numeric(bli[c], errors="coerce")
-
-# pct_billed
-bli["pct_billed"] = bli["total_billed"] / bli["scheduled_value"] * 100
-
-# fill pct_complete（关键修复）
-bli["pct_complete"] = bli["pct_complete"].where(
-    bli["pct_complete"].notna(),
-    bli["pct_billed"]
+# =========================
+# pct_billed: CURRENT BILLING PROGRESS
+# =========================
+# 用最新一期 cumulative billed / scheduled value
+bli["pct_billed"] = np.where(
+    bli["scheduled_value"] > 0,
+    bli["total_billed"] / bli["scheduled_value"] * 100,
+    np.nan
 )
 
-# billing gap
-bli["billing_gap"] = bli["pct_complete"] - bli["pct_billed"]
-
 # =========================
-# KEEP ONLY LATEST BILLING
+# LATEST SOV RECORD
 # =========================
+# 保留每个 project + sov_line 最新一期记录
 bli_latest = (
-    bli.sort_values(["project_id","sov_line_id","application_number"])
-    .groupby(["project_id","sov_line_id"], as_index=False)
-    .tail(1)
+    bli.sort_values(["project_id", "sov_line_id", "application_number"])
+       .groupby(["project_id", "sov_line_id"], as_index=False)
+       .tail(1)
+       .copy()
 )
 
 # =========================
-# CHANGE ORDER CLEAN
+# pct_complete: CONSTRUCTION PROGRESS
 # =========================
+# 只用 billing_line_items_all.csv 自己带的 raw pct_complete
+# 按 project + sov_line 取最大值
+pct_complete_summary = (
+    bli.groupby(["project_id", "sov_line_id"])["pct_complete"]
+       .max()
+       .reset_index()
+       .rename(columns={"pct_complete": "pct_complete_max"})
+)
+
+bli_latest = bli_latest.merge(
+    pct_complete_summary,
+    on=["project_id", "sov_line_id"],
+    how="left"
+)
+
+# 用本地原始数据里的 max pct_complete 覆盖
+bli_latest["pct_complete"] = bli_latest["pct_complete_max"].clip(0, 100)
+
+# =========================
+# BILLING GAP
+# =========================
+bli_latest["billing_gap"] = bli_latest["pct_complete"] - bli_latest["pct_billed"]
+
+# =========================
+# BILLING HISTORY
+# =========================
+bh["status"] = (
+    bh["status"]
+    .astype(str)
+    .str.strip()
+    .str.upper()
+)
+
+bh["payment_date"] = pd.to_datetime(bh["payment_date"], errors="coerce")
+bh["is_paid"] = bh["payment_date"].notna()
+
+def fix_status(row):
+    if row["is_paid"]:
+        return "PAID"
+    elif row["status"] == "APPROVED":
+        return "APPROVED"
+    else:
+        return "PENDING"
+
+bh["status_clean"] = bh.apply(fix_status, axis=1)
+bh["retention_held"] = pd.to_numeric(bh["retention_held"], errors="coerce")
+
+latest_bh = (
+    bh.sort_values(["project_id", "application_number"])
+      .groupby("project_id", as_index=False)
+      .tail(1)
+      .copy()
+)
+
+# =========================
+# CHANGE ORDER
+# =========================
+co["status"] = (
+    co["status"]
+    .astype(str)
+    .str.strip()
+    .str.upper()
+)
+
 co["amount"] = pd.to_numeric(co["amount"], errors="coerce")
-co["schedule_impact_days"] = pd.to_numeric(co["schedule_impact_days"], errors="coerce")
 
 def parse(x):
     try:
         return ast.literal_eval(x) if pd.notna(x) else []
-    except:
+    except Exception:
         return []
 
 co["affected_sov_lines"] = co["affected_sov_lines"].apply(parse)
 co = co.explode("affected_sov_lines")
+co = co.rename(columns={"affected_sov_lines": "sov_line_id"})
+co = co[co["sov_line_id"].notna()].copy()
 
-co = co.rename(columns={"affected_sov_lines":"sov_line_id"})
-
-# only approved
-co = co[co["status"].str.upper()=="APPROVED"]
+co_approved = co[co["status"] == "APPROVED"]
 
 co_summary = (
-    co.groupby(["project_id","sov_line_id"], as_index=False)
-    .agg(
-        change_order_count=("co_number","count"),
-        total_co_amount=("amount","sum"),
-        total_delay_days=("schedule_impact_days","sum")
+    co_approved.groupby(["project_id", "sov_line_id"], as_index=False)
+               .agg(total_co_amount=("amount", "sum"))
+)
+
+# =========================
+# MERGE → SOV
+# =========================
+sov = (
+    bli_latest[[
+        "project_id",
+        "sov_line_id",
+        "scheduled_value",
+        "total_billed",
+        "pct_complete",
+        "pct_billed",
+        "billing_gap"
+    ]]
+    .merge(
+        latest_bh[["project_id", "retention_held"]],
+        on="project_id",
+        how="left"
+    )
+    .merge(
+        co_summary,
+        on=["project_id", "sov_line_id"],
+        how="left"
     )
 )
 
+sov["total_co_amount"] = sov["total_co_amount"].fillna(0)
+sov["retention_held"] = sov["retention_held"].fillna(0)
+
 # =========================
-# SOV SUMMARY（核心表）
+# RISK LOGIC
 # =========================
-sov_summary = (
-    bli_latest[[
-        "project_id","sov_line_id",
-        "scheduled_value","total_billed",
-        "pct_complete","billing_gap"
-    ]]
-    .merge(co_summary, on=["project_id","sov_line_id"], how="left")
+# 这里是百分点，不是小数
+sov["underbilling_flag"] = sov["billing_gap"] > 0.04
+sov["overbilling_flag"] = sov["billing_gap"] < -0.04
+
+sov["closeout_flag"] = (
+    (sov["pct_complete"] >= 100) &
+    (sov["total_billed"] < sov["scheduled_value"])
 )
 
-# fill NA
-sov_summary[["change_order_count","total_co_amount","total_delay_days"]] = \
-    sov_summary[["change_order_count","total_co_amount","total_delay_days"]].fillna(0)
+sov["retention_flag"] = sov["retention_held"] > 1
+
+sov["true_closeout_issue"] = (
+    sov["closeout_flag"] & (~sov["retention_flag"])
+)
+
+# =========================
+# RISK COMPONENTS
+# =========================
+sov["underbilling_points"] = sov["underbilling_flag"].astype(int) * 2
+sov["overbilling_points"] = sov["overbilling_flag"].astype(int) * 1
+sov["closeout_points"] = sov["true_closeout_issue"].astype(int) * 3
+
+sov["co_points"] = np.select(
+    [
+        sov["total_co_amount"] > 50000,
+        sov["total_co_amount"] > 10000,
+        sov["total_co_amount"] > 0
+    ],
+    [3, 2, 1],
+    default=0
+)
+
+sov["risk_score"] = (
+    sov["underbilling_points"] +
+    sov["overbilling_points"] +
+    sov["closeout_points"] +
+    sov["co_points"]
+)
 
 # =========================
 # PROJECT SUMMARY
 # =========================
 project_summary = (
-    sov_summary.groupby("project_id", as_index=False)
-    .agg(
-        total_budget=("scheduled_value","sum"),
-        total_billed=("total_billed","sum"),
-        avg_billing_gap=("billing_gap","mean"),
-        total_co_amount=("total_co_amount","sum"),
-        total_delay_days=("total_delay_days","sum")
-    )
+    sov.groupby("project_id", as_index=False)
+       .agg(
+           total_budget=("scheduled_value", "sum"),
+           total_billed=("total_billed", "sum"),
+           avg_gap=("billing_gap", "mean"),
+           risk_score=("risk_score", "sum")
+       )
 )
 
+<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
 # margin
 #project_summary["margin"] = (
     #project_summary["total_billed"] - project_summary["total_budget"]
 #) / project_summary["total_budget"]
+=======
+project_summary["margin"] = (
+    project_summary["total_billed"] - project_summary["total_budget"]
+) / project_summary["total_budget"]
+>>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
 
 # =========================
-# FLAGGED PROJECTS
+# FLAGGED
 # =========================
+<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
 #projects_flagged = project_summary[
 #    (project_summary["margin"] < 0.05)]
+=======
+projects_flagged = project_summary[
+    project_summary["margin"] < 0.05
+].copy()
+>>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
 
 # =========================
-# SAVE FILES
+# DEBUG
 # =========================
+<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
 sov_summary.to_csv("data/Cleaned data/sov_summary.csv", index=False)
 #project_summary.to_csv("data/Cleaned data/project_summary.csv", index=False)
 #projects_flagged.to_csv("data/Cleaned data/projects_flagged.csv", index=False)
+=======
+print("SOV risk_score distribution:")
+print(sov["risk_score"].value_counts(dropna=False).sort_index())
 
-print("✅ Done!")
+print("\nBilling gap summary:")
+print(sov["billing_gap"].describe())
+
+print("\nUnderbilling count:", int(sov["underbilling_flag"].sum()))
+print("Overbilling count:", int(sov["overbilling_flag"].sum()))
+print("True closeout issue count:", int(sov["true_closeout_issue"].sum()))
+print("CO flag count:", int((sov["total_co_amount"] > 0).sum()))
+
+# =========================
+# SAVE
+# =========================
+sov.to_csv("sov_summary.csv", index=False)
+project_summary.to_csv("project_summary.csv", index=False)
+projects_flagged.to_csv("projects_flagged.csv", index=False)
+>>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
+
+print("✅ FINAL VERSION READY")
