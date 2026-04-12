@@ -22,6 +22,8 @@ df_merged = df_budget.copy()
 # --- Step 2: merging labor cost ---
 df_merged = df_merged.merge(df_labor_cost, on=["project_id", "sov_line_id"], how="left")
 
+
+####need to change bcuz 0 is already filled
 # --- Step 3: merging material cost (fill missing values with 0) ---
 df_merged = df_merged.merge(df_material_cost, on=["project_id", "sov_line_id"], how="left")
 material_cols = [c for c in df_material_cost.columns if c not in ["project_id", "sov_line_id"]]
@@ -30,7 +32,7 @@ df_merged[material_cols] = df_merged[material_cols].fillna(0)
 # --- Step 4: merging contract_value (project level, broadcast to line items) ---
 df_merged = df_merged.merge(df_contract_value, on="project_id", how="left")
 
-# --- Step 5: merging rfl (project level) ---
+# --- Step 5: merging rfis (project level) ---
 df_merged = df_merged.merge(df_rfis, on="project_id", how="left")
 
 # --- Step 6: exporting ---
@@ -41,3 +43,10 @@ print(f"Total Rows: {len(df_merged)}")
 print(f"\nFeature Names ({len(df_merged.columns)} columns):")
 for col in df_merged.columns:
     print(f"- {col}")
+
+#total cost=actual_labor_cost + actual_material_cost
+#labor_variance: actual_labor_cost - budget_labor_cost 
+#material_variance: actual_material_cost - budget_material_cost
+
+#total_variance（总成本偏差）✅你的公式2 = actual_total_cost - total_budget
+#
