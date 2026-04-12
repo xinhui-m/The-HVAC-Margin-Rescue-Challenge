@@ -65,4 +65,3 @@ print(f"Flagged cases percentage: {len(projects_flagged)/len(df)*100:.1f}%")
 
 
 projects_flagged.to_csv("data/final_data/projects_flagged.csv", index=False)
-print("✅ Done!")
