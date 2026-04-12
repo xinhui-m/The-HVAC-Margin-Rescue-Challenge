@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
 
-df_sov_budget = pd.read_csv("/Users/chloewang/Downloads/sov_budget_all.csv")
+df_sov_budget = pd.read_csv("data/raw data/sov_budget_all.csv")
 
-df_sov_budget = df_sol_budget.sort_values(
+df_sov_budget = df_sov_budget.sort_values(
     by="sov_line_id"
 ).reset_index(drop=True)
 
@@ -26,4 +26,4 @@ df_sov_budget["estimated_budget"] = (
 ).round(3)
 
 
-df_sov_budget.to_csv("/Users/chloewang/Downloads/sov_budget_cleaned.csv", index=False)
+df_sov_budget.to_csv("data/Cleaned data/sov_budget_cleaned.csv", index=False)
