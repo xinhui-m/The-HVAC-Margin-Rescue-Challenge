@@ -72,29 +72,28 @@ def standardize_dates(df: pd.DataFrame, date_col: str = 'date') -> pd.DataFrame:
 # ──────────────────────────────────────────────────────────
 def _normalize_role(role: str) -> str:
     """
-    将单个 role 字符串映射到标准名称。
-    README 明确指出 role 字段存在大量不一致写法，例如：
+    Map a single role string to a standardized name.
+    README explicitly states that the role field has many inconsistent spellings, for example:
       'JM Pipefitter' / 'Journeyman P.F.' / 'Pipefitter JM' → 'Journeyman Pipefitter'
-    
-    匹配逻辑：
-      1. 全小写 + 去除多余标点/空格
-      2. 用正则关键词依次匹配，优先匹配更具体的（如 General Foreman 先于 Foreman）
-      3. 无法匹配的保留原始值，留作后续排查
-    
+
+    Matching logic:
+      1. Convert to lowercase and remove extra punctuation/space
+      2. Use regex keywords to match in order of specificity (e.g., General Foreman before Foreman)
+      3. Unmatched values are kept as-is for further review
+
     Args:
-        role: 原始 role 字符串
-    
+        role: Original role string
     Returns:
-        标准化后的 role 字符串
+        Standardized role string
     """
     if pd.isnull(role):
         return 'Unknown'
 
     s = str(role).lower().strip()
-    s = re.sub(r'[.\-_/]', ' ', s)   # 统一标点为空格
-    s = re.sub(r'\s+', ' ', s)        # 合并多余空格
+    s = re.sub(r'[.\-_/]', ' ', s)  
+    s = re.sub(r'\s+', ' ', s)        
 
-    # 注意顺序：更具体的规则放前面
+    # specific roles with unique keywords
     if re.search(r'general\s*foreman', s):
         return 'General Foreman'
     if re.search(r'foreman', s):
@@ -102,7 +101,7 @@ def _normalize_role(role: str) -> str:
     if re.search(r'super(intendent)?', s):
         return 'Superintendent'
 
-    # Pipefitter：区分学徒 / 工匠 / 泛指
+    # Pipefitter：distinguish apprentice/journeyman if keywords exist
     if re.search(r'pipefitter|pipe\s*fitter|p\.?\s*f\.?', s):
         if re.search(r'apprent', s):
             return 'Apprentice Pipefitter'
@@ -133,25 +132,26 @@ def _normalize_role(role: str) -> str:
     if re.search(r'engineer', s):
         return 'Engineer'
 
-    # 通用 Apprentice：尝试提取年份（e.g. "2nd year"）
+    # Common Apprentice：Extract year (e.g. "2nd year")
     if re.search(r'apprent', s):
         yr = re.search(r'(\d)(st|nd|rd|th)', s)
         if yr:
             return f"Apprentice {yr.group(1)}{'st' if yr.group(1)=='1' else 'nd' if yr.group(1)=='2' else 'rd' if yr.group(1)=='3' else 'th'} Year"
         return 'Apprentice'
 
-    return role.strip()  # 匹配失败 → 保留原值，留作排查
+    return role.strip()  #remain original if no rule matched
 
 
 def standardize_roles(df: pd.DataFrame, role_col: str = 'role') -> pd.DataFrame:
     """
-    对 role 列批量应用标准化，并打印清洗前后对比。
-    - 清洗后新增 'role_clean' 列，保留原始 role 列供审计
-    - 打印未被规则覆盖的 role，方便补充匹配逻辑
-    
+    standardize the role column using _normalize_role function, which applies regex-based rules to map various inconsistent role entries to a standardized set of role names.
+    - add "role_clean" column with standardized role names
+     - print unique role counts before and after standardization to show the effect of the cleaning rules
+     - print value counts of the cleaned roles to show the distribution
+     - print out unmatched roles (where role_clean is the same as original role, indicating no
     Args:
-        df:       输入 DataFrame
-        role_col: role 列名，默认 'role'
+        df:       input DataFrame
+        role_col: role ，named as 'role'
     
     Returns:
         新增 'role_clean' 列的 DataFrame
@@ -163,7 +163,7 @@ def standardize_roles(df: pd.DataFrame, role_col: str = 'role') -> pd.DataFrame:
     print(f"=== UNIQUE ROLES after clean:  {df['role_clean'].nunique()} ===")
     print(df['role_clean'].value_counts())
 
-    # 打印仍未被规则匹配的 role（原值 == 清洗后值），方便补规则
+    #prints out unmatched roles for further rule refinement
     unmatched_mask = df['role_clean'] == df[role_col].str.strip()
     unmatched = df.loc[unmatched_mask, role_col].value_counts()
     if not unmatched.empty:
@@ -178,42 +178,41 @@ def standardize_roles(df: pd.DataFrame, role_col: str = 'role') -> pd.DataFrame:
 # ──────────────────────────────────────────────────────────
 def validate_numerics(df: pd.DataFrame) -> pd.DataFrame:
     """
-    检验数值列的合理性，打印异常统计，不自动修改数据。
-    检查项目：
-      - hours_st / hours_ot：不应为负；单日总时长不应超过 24 小时
-      - hourly_rate：正常范围 $15–$300（超出范围打印样本）
-      - burden_multiplier：正常范围 1.0–2.5（超出范围打印样本）
+    examine numeric columns for potential data quality issues:
+     - hours_st, hours_ot: should not be negative; total hours per day should not exceed 24 (obvious data entry error)
+     - hourly_rate: reasonable range $15–$300 (flag outliers for review)
+     - burden_multiplier: reasonable range 1.0–2.5 (flag outliers for review)   
     
     Args:
-        df: 输入 DataFrame
+        df: input DataFrame
     
     Returns:
-        原始 DataFrame（本函数只报告，不修改）
+        original DataFrame（report, not modifying）
     """
     num_cols = ['hours_st', 'hours_ot', 'hourly_rate', 'burden_multiplier']
     print("=== NUMERIC STATS ===")
     print(df[num_cols].describe())
     print()
 
-    # 负值检查
+    # negative values check
     for col in num_cols:
         neg = (df[col] < 0).sum()
         if neg > 0:
             print(f"  ⚠️  {col}: {neg} negative values")
 
-    # 单日总工时超过 24 小时（明显录入错误）
+    # exceed 24 hours/day check
     odd_hours = df[(df['hours_st'] + df['hours_ot']) > 24]
     print(f"  ⚠️  Rows with total hours > 24/day: {len(odd_hours)}")
     if not odd_hours.empty:
         print(odd_hours[['log_id', 'date', 'hours_st', 'hours_ot']].head())
 
-    # hourly_rate 异常（$15 以下或 $300 以上）
+    # hourly_rate check
     odd_rate = df[(df['hourly_rate'] < 15) | (df['hourly_rate'] > 300)]
     print(f"  ⚠️  Unusual hourly_rate (<$15 or >$300): {len(odd_rate)}")
     if not odd_rate.empty:
         print(odd_rate[['log_id', 'role', 'hourly_rate']].head())
 
-    # burden_multiplier 异常（正常约 1.25–1.65，放宽到 1.0–2.5）
+    # burden_multiplier check
     odd_burden = df[(df['burden_multiplier'] < 1.0) | (df['burden_multiplier'] > 2.5)]
     print(f"  ⚠️  Unusual burden_multiplier (<1.0 or >2.5): {len(odd_burden)}")
     if not odd_burden.empty:
@@ -224,24 +223,21 @@ def validate_numerics(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────────────────
-# STEP 5: 计算 labor_cost 派生列
+# STEP 5: Calculate labor cost for each log entry
 # ──────────────────────────────────────────────────────────
 def compute_labor_cost(df: pd.DataFrame) -> pd.DataFrame:
     """
-    按 README 公式计算每条记录的实际劳工成本，新增 'labor_cost' 列。
-    
-    公式：
+    formula：
         labor_cost = (hours_st + hours_ot × 1.5) × hourly_rate × burden_multiplier
     
-    其中：
-        hours_ot × 1.5  → 加班费溢价
-        burden_multiplier → 劳工附加成本倍率（税、保险、福利等）
+        hours_ot × 1.5  → overtime hours converted to standard hour equivalent
+        burden_multiplier → labor burden multiplier (tax, insurance, benefits, etc.)
     
     Args:
-        df: 包含 hours_st, hours_ot, hourly_rate, burden_multiplier 的 DataFrame
+        df:  dataframe with hours_st, hours_ot, hourly_rate, burden_multiplier 
     
     Returns:
-        新增 'labor_cost' 列的 DataFrame
+        dataframe with the 'labor_cost' column added
     """
     df['labor_cost'] = (
     (df['hours_st'] + df['hours_ot'] * 1.5)
@@ -256,27 +252,26 @@ def compute_labor_cost(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ──────────────────────────────────────────────────────────
-# STEP 6: 按 sov_line_id 聚合 labor_cost
+# STEP 6: Aggregate to SOV line level
 # ──────────────────────────────────────────────────────────
 def aggregate_by_sov_line(df: pd.DataFrame) -> pd.DataFrame:
     """
-    将明细级别的 labor_logs（1.2M 行）按 sov_line_id 聚合，
-    生成 SOV 行级别的劳工成本汇总表（目标：6075 行）。
-    
-    聚合内容：
-      - total_labor_cost : 该 SOV line 的总劳工成本
-      - total_hours_st   : 正常工时合计
-      - total_hours_ot   : 加班工时合计
-      - total_hours      : 总工时（含加班折算前）
-      - log_count        : 日志条目数（可用于检查数据密度）
-      - unique_employees : 参与该 SOV line 的员工数
-      - date_min / date_max : 该 SOV line 的实际施工起止日期
+    combine labor logs to SOV line level (target: 6075 rows)
+   Get the following aggregated features for each SOV line:
+
+      - total_labor_cost 
+      - total_hours_st   : total standard labor hours
+      - total_hours_ot   : overtime hours
+      - total_hours      : total hours (including overtime before conversion)
+      - log_count        : log entry count (can be used to check data density)
+      - unique_employees : number of employees involved in the SOV line
+      - date_min / date_max : actual construction start and end dates for the SOV line
     
     Args:
-        df: 已含 labor_cost 列的 DataFrame
+        df: dataframe with cleaned labor logs, must include 'project_id', 'sov_line_id', 'labor_cost', 'hours_st', 'hours_ot', 'employee_id', 'date'
     
     Returns:
-        以 sov_line_id 为主键的聚合 DataFrame（6075 行）
+        combined dataframe at SOV line level with the above features
     """
     agg_df = df.groupby(['project_id', 'sov_line_id']).agg(
         total_labor_cost  = ('labor_cost',    'sum'),
@@ -288,7 +283,7 @@ def aggregate_by_sov_line(df: pd.DataFrame) -> pd.DataFrame:
         date_max          = ('date',          'max'),
     ).reset_index()
 
-    # 派生：总工时（未折算加班）
+    #calculate total_hours for later use (e.g. labor productivity analysis)
     agg_df['total_hours'] = agg_df['total_hours_st'] + agg_df['total_hours_ot']
 
     # examine the aggregation result
@@ -296,7 +291,7 @@ def aggregate_by_sov_line(df: pd.DataFrame) -> pd.DataFrame:
     actual_rows = len(agg_df)
     if actual_rows != expected_rows:
         print(f"⚠️  Row count mismatch: expected {expected_rows}, got {actual_rows}")
-        print("    可能原因：某些 SOV line 在 labor_logs 中没有记录，或 project 数量不足 405")
+        print("    Potential reason：Some SOV line is not recorded in labor_logs")
     else:
         print(f"✅ Aggregation looks correct: {actual_rows} rows ({actual_rows // 15} projects × 15 SOV lines)")
 
