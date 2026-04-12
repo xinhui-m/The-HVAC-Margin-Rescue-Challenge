@@ -222,37 +222,20 @@ project_summary = (
        )
 )
 
-<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
-# margin
-#project_summary["margin"] = (
-    #project_summary["total_billed"] - project_summary["total_budget"]
-#) / project_summary["total_budget"]
-=======
 project_summary["margin"] = (
     project_summary["total_billed"] - project_summary["total_budget"]
 ) / project_summary["total_budget"]
->>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
 
 # =========================
 # FLAGGED
 # =========================
-<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
-#projects_flagged = project_summary[
-#    (project_summary["margin"] < 0.05)]
-=======
 projects_flagged = project_summary[
     project_summary["margin"] < 0.05
 ].copy()
->>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
 
 # =========================
 # DEBUG
 # =========================
-<<<<<<< HEAD:backend/aggregation/data_cleaning/billings_cleaned.py
-sov_summary.to_csv("data/Cleaned data/sov_summary.csv", index=False)
-#project_summary.to_csv("data/Cleaned data/project_summary.csv", index=False)
-#projects_flagged.to_csv("data/Cleaned data/projects_flagged.csv", index=False)
-=======
 print("SOV risk_score distribution:")
 print(sov["risk_score"].value_counts(dropna=False).sort_index())
 
@@ -270,6 +253,5 @@ print("CO flag count:", int((sov["total_co_amount"] > 0).sum()))
 sov.to_csv("sov_summary.csv", index=False)
 project_summary.to_csv("project_summary.csv", index=False)
 projects_flagged.to_csv("projects_flagged.csv", index=False)
->>>>>>> eb40848 (Add generated summary outputs and update Datathon script):backend/aggregation/Datathon.py
 
 print("✅ FINAL VERSION READY")
