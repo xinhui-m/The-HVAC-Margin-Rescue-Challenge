@@ -6,7 +6,7 @@ from sklearn.preprocessing import StandardScaler
 df = pd.read_csv("data/final_data/final_summary.csv")
 
 # calculate margin_erosion
-df["margin_erosion"] = df["bid_margin"] - df["actual_margin"]
+df["margin_erosion"] = df["bid_margin"] - df["realized_margin"]
 
 # choose features
 features = [
@@ -65,6 +65,5 @@ print(f"Number of flagged cases: {len(projects_flagged)}")
 print(f"Flagged cases percentage: {len(projects_flagged)/len(df)*100:.1f}%")
 
 
-df.to_csv("data/final_data/final_summary.csv", index=False)
 projects_flagged.to_csv("data/final_data/projects_flagged.csv", index=False)
 print("✅ Done!")
