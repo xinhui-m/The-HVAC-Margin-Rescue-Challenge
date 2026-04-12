@@ -250,8 +250,8 @@ print("CO flag count:", int((sov["total_co_amount"] > 0).sum()))
 # =========================
 # SAVE
 # =========================
-sov.to_csv("sov_summary.csv", index=False)
-project_summary.to_csv("project_summary.csv", index=False)
-projects_flagged.to_csv("projects_flagged.csv", index=False)
+sov.to_csv("data/Cleaned data/sov_summary.csv", index=False)
+project_summary.to_csv("data/Cleaned data/project_summary.csv", index=False)
+projects_flagged.to_csv("data/Cleaned data/projects_flagged.csv", index=False)
 
 print("✅ FINAL VERSION READY")
