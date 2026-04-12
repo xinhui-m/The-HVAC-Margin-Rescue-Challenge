@@ -9,20 +9,26 @@ interface SummaryCardsProps {
   projects: AgentReport["projects"]
 }
 
-export function SummaryCards({ summary, projects }: SummaryCardsProps) {
-  const criticalCount = projects.filter(p => p.severity === "critical").length
-  const warningCount = projects.filter(p => p.severity === "warning").length
-  
-  const avgMargin = projects.length > 0
-    ? projects.reduce((acc, p) => acc + p.realized_margin, 0) / projects.length
-    : 0
+function formatCurrency(value: number) {
+  if (value >= 1000000) {
+    return `$${(value / 1000000).toFixed(2)}M`
+  }
 
-  const formatCurrency = (value: number) => {
-    if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(2)}M`
-    }
+  if (value >= 1000) {
     return `$${(value / 1000).toFixed(0)}K`
   }
+
+  return `$${value.toLocaleString()}`
+}
+
+export function SummaryCards({ summary, projects }: SummaryCardsProps) {
+  const criticalCount = projects.filter((p) => p.realized_margin < 0).length
+  const warningCount = projects.filter((p) => p.realized_margin >= 0).length
+
+  const avgMargin =
+    projects.length > 0
+      ? projects.reduce((acc, p) => acc + p.realized_margin, 0) / projects.length
+      : 0
 
   return (
     <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

@@ -1,41 +1,41 @@
-# backend/agent/recommendations.py
-
-def generate_recommendations(project: dict, root_causes: list[dict]) -> list[dict]:
-    """
-    Takes a project and its root causes, returns specific actionable recommendations.
-    """
+def generate_recommendations(project: dict, causes: list[dict]) -> list[dict]:
     recommendations = []
-    
-    for cause in root_causes:
-        if cause["category"] == "billing":
-            recommendations.append({
-                "action": "SUBMIT_INVOICE",
-                "priority": "high",
-                "dollar_impact": cause["gap_dollars"],
-                "description": f"Submit invoice for ${cause['gap_dollars']:,.0f} in unbilled work",
-                "details": "Review completed work orders and submit billing for all finished milestones"
-            })
-        
-        elif cause["category"] == "labor":
-            recommendations.append({
-                "action": "SUBMIT_CHANGE_ORDER",
-                "priority": "high" if cause["severity"] == "high" else "medium",
-                "dollar_impact": cause["overrun_dollars"],
-                "description": f"Submit change order for ${cause['overrun_dollars']:,.0f} in labor overruns",
-                "details": "Document scope changes or site conditions that drove additional labor hours"
-            })
-        
-        elif cause["category"] == "material":
-            recommendations.append({
-                "action": "SUBMIT_CHANGE_ORDER",
-                "priority": "high" if cause["severity"] == "high" else "medium",
-                "dollar_impact": cause["overrun_dollars"],
-                "description": f"Submit change order for ${cause['overrun_dollars']:,.0f} in material cost increases",
-                "details": "Document material substitutions, price escalations, or specification changes"
-            })
-    
-    # Sort: high priority first, then by dollar impact
-    priority_order = {"high": 0, "medium": 1, "low": 2}
-    recommendations.sort(key=lambda x: (priority_order[x["priority"]], -(x["dollar_impact"] or 0)))
-    
+
+    cause_types = {c["type"] for c in causes}
+
+    if "billing_lag" in cause_types:
+        recommendations.append({
+            "action": "Submit pay application for completed but underbilled work.",
+            "priority": "high",
+            "dollar_impact": round(project["max_billing_gap"] * project["total_co_amount"], 2) if project["total_co_amount"] else None,
+        })
+
+    if "retention_exposure" in cause_types:
+        recommendations.append({
+            "action": "Push for retention release as closeout approaches.",
+            "priority": "high",
+            "dollar_impact": round(project["total_retention_held"], 2),
+        })
+
+    if "change_order_opportunity" in cause_types:
+        recommendations.append({
+            "action": "Audit approved and pending change orders for immediate billing and recovery.",
+            "priority": "high",
+            "dollar_impact": round(project["total_co_amount"], 2),
+        })
+
+    if "material_overrun" in cause_types:
+        recommendations.append({
+            "action": "Review buyout, substitutions, and late-stage procurement on flagged SOV lines.",
+            "priority": "medium",
+            "dollar_impact": None,
+        })
+
+    if "labor_overrun" in cause_types:
+        recommendations.append({
+            "action": "Audit labor loading and overtime concentration on flagged scopes.",
+            "priority": "medium",
+            "dollar_impact": None,
+        })
+
     return recommendations

@@ -14,7 +14,7 @@ const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
 export function Dashboard() {
   const { data, error, isLoading, mutate } = useSWR<AgentReport>(
-    `/api/analyze`,
+    "/api/analyze",
     fetcher,
     {
       revalidateOnFocus: false,
@@ -65,24 +65,25 @@ export function Dashboard() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="mx-auto max-w-5xl px-6 py-8">
         <div className="space-y-6">
           <Greeting totalProjects={data.summary.total_projects_analyzed} />
-          
+
           <SummaryCards summary={data.summary} projects={data.projects} />
-          
+
           <div>
             <div className="mb-4 flex items-center gap-2">
               <h2 className="text-lg font-semibold text-foreground">
                 Projects that need attention
               </h2>
-              <span className="text-sm text-muted-foreground">sorted by severity</span>
+              <span className="text-sm text-muted-foreground">
+                sorted by severity
+              </span>
             </div>
             <ProjectList projects={data.projects} />
           </div>
-          
-          {/* Footer */}
+
           <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
             <Sparkles className="h-4 w-4" />
             <span>Data from Deltek Vision, Procore, SAP</span>
