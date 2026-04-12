@@ -16,8 +16,6 @@ df_budget_summary.rename(columns={"estimated_budget": "total_estimated_budget"},
 # merge进contracts_all
 df_contracts_all = df_contracts_all.merge(df_budget_summary, on="project_id", how="left")
 
-df_contracts_all = df_contracts_all.drop(columns=["gc_name", "architect", "engineer_of_record"])
-
 # 计算budget coverage
 df_contracts_all["budget_coverage"] = (
     df_contracts_all["total_estimated_budget"] / df_contracts_all["original_contract_value"]
