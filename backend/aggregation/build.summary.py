@@ -1,6 +1,6 @@
 import pandas as pd
 
-#6075rows summary
+#6075rows Solve line level summary
 
 # --- Load Data ---
 df_labor_cost = pd.read_csv("data/Cleaned data/cleaned_labor_log.csv")
@@ -47,12 +47,56 @@ df_merged["total_variance"] = df_merged["actual_total_cost"] - df_merged["estima
 # Labor overrun ratio
 df_merged["labor_overrun_ratio"] = df_merged["total_labor_cost"] / df_merged["estimated_labor_cost"]
 
-# Actual margin (current performance)
-df_merged["actual_margin"] = (df_merged["total_billed"] - df_merged["actual_total_cost"]) / df_merged["total_billed"]
-
 # Bid margin (planned margin at contract time)
-df_merged["bid_margin"] = (df_merged["scheduled_value"] - df_merged["estimated_budget"]) / df_merged["scheduled_value"]
+#df_merged["bid_margin"] = (df_merged["scheduled_value"] - df_merged["estimated_budget"]) / df_merged["scheduled_value"]
 
+#calculating bid margin and realize margin on project level
+check = df_merged.groupby("project_id")["total_estimated_budget"].nunique()
+print(check[check > 1]) 
+
+# actual_total_cost is SOV level
+# contract_value and total_estimated_budget is project level
+
+# Step 1: 同时聚合所有需要sum的字段
+agg_by_project = df_merged.groupby("project_id").agg(
+    actual_total_cost        = ("actual_total_cost", "sum"),
+    estimated_labor_cost_sum = ("estimated_labor_cost", "sum"),
+    estimated_material_cost_sum = ("estimated_material_cost", "sum")
+).reset_index()
+
+# Step 2: project级别字段直接去重
+project_info = df_merged[["project_id", "original_contract_value"]].drop_duplicates("project_id")
+
+# Step 3: 合并
+df_project = project_info.merge(agg_by_project, on="project_id", how="left")
+
+# Step 4: 同口径算margin
+df_project["realized_margin"] = (
+    (df_project["original_contract_value"] - df_project["actual_total_cost"])
+    / df_project["original_contract_value"]
+)
+
+df_project["bid_margin"] = (
+    (df_project["original_contract_value"] 
+     - df_project["estimated_labor_cost_sum"] 
+     - df_project["estimated_material_cost_sum"])
+    / df_project["original_contract_value"]
+)
+
+df_project["margin_erosion"] = df_project["bid_margin"] - df_project["realized_margin"]
+
+# Step 5: merge back to 6075
+df_merged = df_merged.merge(
+    df_project[["project_id", "realized_margin", "bid_margin", "margin_erosion"]],
+    on="project_id",
+    how="left"
+)
+
+#pid = "PRJ-2018-001"
+#row = df_project[df_project.project_id == pid].iloc[0]
+#print(f"contract_value:          {row.original_contract_value:,.0f}")
+#print(f"total_estimated_budget:  {row.total_estimated_budget:,.0f}")  # this is larger than contract value
+#print(f"actual_total_cost:       {row.actual_total_cost:,.0f}")
 
 # step 7: exporting ---
 df_merged.to_csv("data/final_data/final_summary.csv", index=False)
