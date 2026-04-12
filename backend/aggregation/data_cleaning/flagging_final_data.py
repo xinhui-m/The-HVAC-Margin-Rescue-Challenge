@@ -8,14 +8,14 @@ df = pd.read_csv("data/final_data/final_summary.csv")
 
 # choose features
 features = [
-    "realized_margin",
     "margin_erosion",
     "labor_overrun_ratio",
     "material_overrun_ratio",
     "total_co_amount",
     "billing_gap",
     "pct_complete",
-    "underbilling_flag"
+    "underbilling_flag",
+    "realized_margin"
 ]
 
 # 去掉 NaN
