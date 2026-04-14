@@ -2,7 +2,16 @@ import { NextResponse } from "next/server"
 
 export async function GET() {
   try {
-    const res = await fetch("http://127.0.0.1:8000/api/analyze", {
+    const backendUrl = process.env.BACKEND_API_URL
+
+    if (!backendUrl) {
+      return NextResponse.json(
+        { error: "BACKEND_API_URL is not set" },
+        { status: 500 }
+      )
+    }
+
+    const res = await fetch(`${backendUrl}/api/analyze`, {
       cache: "no-store",
     })
 
@@ -15,10 +24,12 @@ export async function GET() {
 
     const data = await res.json()
     return NextResponse.json(data)
-
   } catch (error) {
     return NextResponse.json(
-      { error: "Backend connection failed" },
+      {
+        error: "Backend connection failed",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
       { status: 500 }
     )
   }
