@@ -79,7 +79,15 @@ def generate_agent_report(projects: list[dict], top_n: int = 10) -> dict:
     """
     Takes project-level summaries and returns analysis of the worst projects.
     """
-    ranked = rank_projects_by_risk(projects)
+    ranked = sorted(
+    rank_projects_by_risk(projects),
+    key=lambda p: (
+        p.get("risk_score", 0),
+        -(p.get("recoverable_amount", 0) or 0),
+        p.get("realized_margin", 0)
+    ),
+    reverse=True
+)
     at_risk = [p for p in ranked if p.get("is_at_risk", False)][:top_n]
 
     analyzed_projects = []
